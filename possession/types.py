@@ -21,6 +21,13 @@ TEAM_CODES = (HOME, AWAY, NOBODY)
 LABELS = ("H", "A", "D", "X")
 
 
+def _frozen(values, dtype):
+    """A private, read-only copy: a built Match or Evidence cannot change under anyone's feet."""
+    array = np.array(values, dtype=dtype, copy=True)
+    array.setflags(write=False)
+    return array
+
+
 def _check_positions(name, array, n_frames=None):
     if not np.isfinite(array[~np.isnan(array)]).all():
         raise ValueError("{}: positions must be finite or NaN".format(name))
@@ -47,8 +54,8 @@ class Match:
     halves: tuple = field(default=())
 
     def __post_init__(self):
-        ball = np.asarray(self.ball, dtype=np.float64)
-        players = np.asarray(self.players, dtype=np.float64)
+        ball = _frozen(self.ball, np.float64)
+        players = _frozen(self.players, np.float64)
         team = np.asarray(self.team)
 
         if ball.ndim != 2 or ball.shape[1] != 2:
@@ -61,23 +68,33 @@ class Match:
         if team.shape != (players.shape[1],):
             raise ValueError("team: expected {} slots, got shape {}".format(
                 players.shape[1], team.shape))
-        if not np.isin(team, TEAM_CODES).all():
-            raise ValueError("team: codes must be in {}".format(TEAM_CODES))
+        if team.dtype.kind not in "iu" or not np.isin(team, TEAM_CODES).all():
+            raise ValueError("team: integer codes in {} expected".format(TEAM_CODES))
 
-        halves = tuple(tuple(int(v) for v in half) for half in self.halves)
-        previous_last = -1
-        for half, first, last in halves:
-            if not (previous_last < first <= last < n_frames):
+        pitch = tuple(float(v) for v in self.pitch)
+        if len(pitch) != 2 or min(pitch) <= 0:
+            raise ValueError("pitch: expected (length, width) > 0, got {}".format(self.pitch))
+        if not self.fps > 0:
+            raise ValueError("fps: must be positive, got {}".format(self.fps))
+
+        halves = []
+        previous = (0, -1)  # (half id, last row)
+        for entry in self.halves:
+            if len(entry) != 3:
+                raise ValueError("halves: expected (half, first, last), got {}".format(entry))
+            half, first, last = (int(v) for v in entry)
+            if not (half > previous[0] and previous[1] < first <= last < n_frames):
                 raise ValueError("halves: {} is out of order or outside 0..{}".format(
-                    (half, first, last), n_frames - 1))
-            previous_last = last
+                    entry, n_frames - 1))
+            halves.append((half, first, last))
+            previous = (half, last)
 
         object.__setattr__(self, "ball", ball)
         object.__setattr__(self, "players", players)
-        object.__setattr__(self, "team", team.astype(np.int8))
-        object.__setattr__(self, "pitch", (float(self.pitch[0]), float(self.pitch[1])))
+        object.__setattr__(self, "team", _frozen(team, np.int8))
+        object.__setattr__(self, "pitch", pitch)
         object.__setattr__(self, "fps", float(self.fps))
-        object.__setattr__(self, "halves", halves)
+        object.__setattr__(self, "halves", tuple(halves))
 
     @property
     def n_frames(self):
@@ -109,7 +126,7 @@ PROBABILITY_CHANNELS = ("dead", "home")
 EVENT_CHANNELS = ("control", "touch")
 
 
-@dataclass(eq=False)
+@dataclass(frozen=True, eq=False)
 class Evidence:
     """Per-frame evidence for the decoder. NaN / NOBODY means "no opinion".
 
@@ -134,7 +151,7 @@ class Evidence:
             known = values[~np.isnan(values)]
             if ((known < 0) | (known > 1)).any():
                 raise ValueError("{}: probabilities must be in [0, 1] or NaN".format(name))
-            setattr(self, name, values)
+            object.__setattr__(self, name, _frozen(values, np.float64))
         for name in EVENT_CHANNELS:
             values = np.asarray(getattr(self, name))
             if values.shape != (n_frames,):
@@ -142,7 +159,7 @@ class Evidence:
                     name, n_frames, values.shape))
             if not np.isin(values, TEAM_CODES).all():
                 raise ValueError("{}: codes must be in {}".format(name, TEAM_CODES))
-            setattr(self, name, values.astype(np.int8))
+            object.__setattr__(self, name, _frozen(values, np.int8))
 
     @property
     def n_frames(self):

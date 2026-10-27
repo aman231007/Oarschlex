@@ -48,9 +48,42 @@ def test_match_rejects_unknown_team_codes():
 
 
 def test_match_allows_nan_for_missing_observations():
-    match = _match()
-    match.ball[3] = np.nan
-    assert np.isnan(match.ball[3]).all()
+    ball = np.zeros((10, 2))
+    ball[3] = np.nan
+    players = np.zeros((10, 2, 2))
+    players[5, 1] = np.nan
+    match = T.Match(ball=ball, players=players, team=np.array([0, 1], dtype=np.int8))
+    assert np.isnan(match.ball[3]).all() and np.isnan(match.players[5, 1]).all()
+
+
+def test_match_is_immutable_and_does_not_alias_inputs():
+    ball = np.zeros((10, 2))
+    match = T.Match(ball=ball, players=np.zeros((10, 2, 2)), team=np.array([0, 1]))
+    ball[0, 0] = 99.0
+    assert match.ball[0, 0] == 0.0
+    with pytest.raises(ValueError):
+        match.ball[0, 0] = np.inf
+    with pytest.raises(ValueError):
+        match.team[0] = 1
+
+
+@pytest.mark.parametrize("halves", [((1, 0),), ((1, 0, 4), (1, 6, 9))])
+def test_match_rejects_malformed_or_repeated_halves(halves):
+    with pytest.raises(ValueError, match="halves"):
+        _match(halves=halves)
+
+
+@pytest.mark.parametrize("kwargs, field", [({"pitch": (-1.0, 68.0)}, "pitch"),
+                                           ({"fps": 0}, "fps")])
+def test_match_rejects_non_positive_pitch_and_fps(kwargs, field):
+    with pytest.raises(ValueError, match=field):
+        _match(**kwargs)
+
+
+def test_match_rejects_boolean_team_codes():
+    with pytest.raises(ValueError, match="team"):
+        T.Match(ball=np.zeros((2, 2)), players=np.zeros((2, 2, 2)),
+                team=np.array([False, True]))
 
 
 def test_match_rejects_infinite_positions():
@@ -106,6 +139,14 @@ def test_evidence_rejects_length_mismatch():
     with pytest.raises(ValueError, match="home"):
         T.Evidence(dead=np.full(5, np.nan), home=np.full(4, np.nan),
                    control=np.full(5, -1, dtype=np.int8), touch=np.full(5, -1, dtype=np.int8))
+
+
+def test_evidence_coerces_dtypes_accepts_nan_and_is_read_only():
+    ev = T.Evidence(dead=[0.5, np.nan], home=[np.nan, 1], control=[0, -1], touch=[-1, 1])
+    assert ev.dead.dtype == np.float64 and ev.control.dtype == np.int8
+    assert np.isnan(ev.dead[1])
+    with pytest.raises(ValueError):
+        ev.dead[0] = 0.1
 
 
 @pytest.mark.parametrize("channel", ["dead", "home"])

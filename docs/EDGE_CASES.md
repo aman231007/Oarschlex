@@ -109,8 +109,9 @@ Barça-Spiels gebunden sind. Alle Schwellenwerte unten sind Parameter, die auf F
   Ballkontakts im Feld.
 - **Grenze:** Einwurf direkt zum Gegner: kurze Phase des Einwerfers, dann Wechsel bei
   Kontrolle durch Gegner.
-- **Testszene:** Ball geht bei y < 0 ins Aus, 8 s Stillstand, H-Spieler an der Linie, Ball
-  kommt ins Feld, H-Mitspieler nimmt an.
+- **Testszene:** H spielt den Ball bei y < 0 ins Aus, also wirft A ein: 8 s Pause, A-Spieler
+  an der Linie, Ball kommt ins Feld, A-Mitspieler nimmt an. Erwartet: H bis zum
+  Linienübertritt, `D` bis zum Wiedereintritt, dann A (`synth.SCENES["EC-05"]`).
 - **Offen (Frage F1):** Endet `D` in der GT beim Wiedereintritt oder schon beim Abwurf? Kann
   sich das wegen Tracking-Rauschen an der Linie unterscheiden?
 
