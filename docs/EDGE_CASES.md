@@ -203,6 +203,8 @@ Barça-Spiels gebunden sind. Alle Schwellenwerte unten sind Parameter, die auf F
   sich aufwärmende Spieler als Track, mehr als 22 Objekte.
 - **Soll:** Robuste Features, also keine Entscheidung an einem einzelnen Track. Tracks
   außerhalb des Felds ignorieren. Duplikate (zwei Tracks < 0,5 m, gleiches Team) zusammenfassen.
+- **Loader (#6):** Slots, deren `teamId` keins der beiden Teams der Metadaten ist, bekommen
+  `NOBODY` (-1), nicht Auswärts wie in `starter/baseline.py`. Erstes Team = Heim.
 
 ### Metrik
 
