@@ -63,3 +63,37 @@ def read_raw(raw_path, n_slots, n_frames=None):
     ball = np.full((n, 2), np.nan)
     ball[rows] = table[:, width:width + BALL_XY]
     return ball, players
+
+
+def load_atd(meta_path, raw_path, pitch, fps, n_frames=None, halves=()):
+    """An ATD pair as a Match in metres. Pitch, fps and halves are not in the file (see #6)."""
+    team = read_teams(meta_path)
+    ball, players = read_raw(raw_path, len(team), n_frames)
+    return Match.from_normalised(ball, players, team, pitch=pitch, fps=fps, halves=halves)
+
+
+def load(game=GAME, data_dir=None):
+    """The tactical ATD of a game; pitch, fps, frame count and halves come from games.py."""
+    meta, raw = require(["atd_meta", "atd_raw"], game, data_dir)
+    entry = GAMES[game]
+    return load_atd(meta, raw, pitch=entry["pitch"], fps=entry["fps"],
+                    n_frames=source_frames("tactical", game),
+                    halves=tuple(half_video_blocks(game)))
+
+
+def summary(match):
+    """Counts a human may share from a real run (issue #6): no positions, no frame numbers."""
+    seen = ~np.isnan(match.ball[:, 0])
+    return {
+        "n_frames": match.n_frames,
+        "n_slots": match.n_slots,
+        "slots_home_away_nobody": tuple(int((match.team == code).sum())
+                                        for code in (HOME, AWAY, NOBODY)),
+        "ball_visible_share": round(float(seen.mean()), 4),
+        "ball_visible_share_graded": round(float(seen[match.graded_mask()].mean()), 4),
+    }
+
+
+if __name__ == "__main__":
+    for key, value in summary(load()).items():
+        print("{:<28} {}".format(key, value))

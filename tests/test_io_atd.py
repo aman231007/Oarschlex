@@ -5,7 +5,7 @@ import textwrap
 import numpy as np
 import pytest
 
-from possession import io_atd
+from possession import io_atd, synth
 from possession import types as T
 
 META_XML = textwrap.dedent("""\
@@ -91,3 +91,41 @@ def test_trailing_blank_line_is_ignored(tmp_path):
 def test_malformed_raw_file_is_rejected(tmp_path, raw, n_frames, message):
     with pytest.raises(ValueError, match=message):
         io_atd.read_raw(_write(tmp_path / "r.txt", raw.format(p=P)), 3, n_frames)
+
+
+# -- Match ---------------------------------------------------------------------------------------
+
+def test_round_trip_of_a_synthetic_scene(tmp_path):
+    match = synth.SCENES["EC-05"]().match
+    meta, raw = str(tmp_path / "m.xml"), str(tmp_path / "r.txt")
+    synth.write_epts(match, meta, raw)
+    loaded = io_atd.load_atd(meta, raw, pitch=match.pitch, fps=match.fps)
+    assert loaded.n_frames == match.n_frames and loaded.fps == match.fps
+    np.testing.assert_array_equal(loaded.team, match.team)
+    np.testing.assert_array_equal(np.isnan(loaded.ball), np.isnan(match.ball))
+    np.testing.assert_allclose(loaded.ball, match.ball, atol=1e-4, equal_nan=True)
+    np.testing.assert_allclose(loaded.players, match.players, atol=1e-4, equal_nan=True)
+
+
+def test_ec11_ec21_load_takes_pitch_fps_length_and_halves_from_games(tmp_path):
+    match = synth.SCENES["EC-06"]().match
+    folder = tmp_path / "tactical"
+    folder.mkdir()
+    synth.write_epts(match, str(folder / "BAR-ATH_tactical_atd.xml"),
+                     str(folder / "BAR-ATH_tactical_atd.txt"))
+    loaded = io_atd.load(data_dir=str(tmp_path))
+    assert loaded.n_frames == 199319
+    assert loaded.pitch == (105.3, 68.0) and loaded.fps == 25.0
+    assert loaded.halves == ((1, 11185, 90651), (2, 110808, 190197))
+    np.testing.assert_allclose(loaded.ball[:match.n_frames], match.ball, atol=1e-4,
+                               equal_nan=True)
+    assert np.isnan(loaded.ball[match.n_frames:]).all()
+
+
+def test_summary_holds_only_counts_and_shares():
+    ball = np.array([[1.0, 1.0], [np.nan, np.nan], [2.0, 2.0], [np.nan, np.nan]])
+    match = T.Match(ball=ball, players=np.zeros((4, 3, 2)),
+                    team=np.array([0, 1, -1], dtype=np.int8), halves=((1, 0, 2),))
+    assert io_atd.summary(match) == {
+        "n_frames": 4, "n_slots": 3, "slots_home_away_nobody": (1, 1, 1),
+        "ball_visible_share": 0.5, "ball_visible_share_graded": 0.6667}
