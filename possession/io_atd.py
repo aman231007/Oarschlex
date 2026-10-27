@@ -10,6 +10,7 @@ EC-11, EC-21: halves come from games.half_video_blocks, never from the file.
     python -m possession.io_atd      # prints counts only -- safe to share
 """
 
+import itertools
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -36,17 +37,37 @@ def read_teams(meta_path):
     return np.array(slots, dtype=np.int8)
 
 
+def _flat_lines(handle, raw_path, n_slots):
+    """Lines with every separator turned into VALUE_SEP, after checking their layout (F5, F6).
+
+    Flattening loses the structure, so a group count or group width that disagrees with the
+    metadata would otherwise shift player columns into the ball. Blank lines are skipped.
+    """
+    for number, line in enumerate(handle, 1):
+        if not line.strip():
+            continue
+        fields = line.split(FIELD_SEP)
+        if (len(fields) != 3 or fields[1].count(GROUP_SEP) != n_slots - 1
+                or fields[1].split(GROUP_SEP, 1)[0].count(VALUE_SEP) != PLAYER_FIELDS - 1):
+            raise ValueError("{}: line {} does not match the layout of {} slots x {} fields"
+                             .format(raw_path, number, n_slots, PLAYER_FIELDS))
+        yield line.replace(FIELD_SEP, VALUE_SEP).replace(GROUP_SEP, VALUE_SEP)
+
+
 def read_raw(raw_path, n_slots, n_frames=None):
     """(ball (n, 2), players (n, k, 2)) in 0-1 pitch units; rows absent from the file stay NaN.
 
     n is n_frames, or the largest frame id when not given. Every line must have the same layout:
     frame id, PLAYER_FIELDS values per slot, then the ball group (x, y and possibly more).
     """
-    # utf-8-sig drops a BOM; text mode turns CRLF into LF; loadtxt skips blank lines.
+    # utf-8-sig drops a BOM; text mode turns CRLF into LF.
     with open(raw_path, encoding="utf-8-sig") as handle:
-        lines = (line.replace(FIELD_SEP, VALUE_SEP).replace(GROUP_SEP, VALUE_SEP)
-                 for line in handle)
-        table = np.loadtxt(lines, delimiter=VALUE_SEP, dtype=np.float64, ndmin=2)
+        lines = _flat_lines(handle, raw_path, n_slots)
+        first = next(lines, None)
+        if first is None:
+            raise ValueError("{}: no frames".format(raw_path))
+        table = np.loadtxt(itertools.chain([first], lines), delimiter=VALUE_SEP,
+                           dtype=np.float64, ndmin=2)
 
     width = 1 + PLAYER_FIELDS * n_slots
     if table.shape[1] < width + BALL_XY:
@@ -54,8 +75,9 @@ def read_raw(raw_path, n_slots, n_frames=None):
             raw_path, table.shape[1], width + BALL_XY, n_slots))
     ids = table[:, 0].astype(np.int64)
     n = int(ids.max()) if n_frames is None else int(n_frames)
-    if ids.min() < 1 or ids.max() > n or np.unique(ids).size != ids.size:
-        raise ValueError("{}: frame ids must be unique and within 1..{}".format(raw_path, n))
+    if ((ids != table[:, 0]).any() or ids.min() < 1 or ids.max() > n
+            or np.unique(ids).size != ids.size):
+        raise ValueError("{}: frame ids must be unique integers within 1..{}".format(raw_path, n))
 
     rows = ids - 1
     players = np.full((n, n_slots, 2), np.nan)

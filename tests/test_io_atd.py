@@ -77,8 +77,8 @@ def test_f5_ball_group_may_carry_extra_fields(tmp_path):
     np.testing.assert_allclose(ball[0], [0.5, 0.25])
 
 
-def test_trailing_blank_line_is_ignored(tmp_path):
-    ball, _ = io_atd.read_raw(_write(tmp_path / "r.txt", RAW + "\n"), 3)
+def test_trailing_blank_lines_are_ignored(tmp_path):
+    ball, _ = io_atd.read_raw(_write(tmp_path / "r.txt", RAW + "\n   \n"), 3)
     assert ball.shape == (4, 2)
 
 
@@ -87,6 +87,8 @@ def test_trailing_blank_line_is_ignored(tmp_path):
     ("1:{p}:0.5\n", None, "columns"),                           # ball group too short
     ("9:{p}:0.5,0.5,1\n", 5, "frame ids"),                      # beyond n_frames
     ("0:{p}:0.5,0.5,1\n", None, "frame ids"),                   # ids count from 1
+    ("1.5:{p}:0.5,0.5,1\n", None, "frame ids"),                 # ids are integers
+    ("\n", None, "no frames"),                                 # nothing to load
 ])
 def test_malformed_raw_file_is_rejected(tmp_path, raw, n_frames, message):
     with pytest.raises(ValueError, match=message):
@@ -129,3 +131,13 @@ def test_summary_holds_only_counts_and_shares():
     assert io_atd.summary(match) == {
         "n_frames": 4, "n_slots": 3, "slots_home_away_nobody": (1, 1, 1),
         "ball_visible_share": 0.5, "ball_visible_share_graded": 0.6667}
+
+
+@pytest.mark.parametrize("raw", [
+    "1:{p};0.7,0.8,3.0:0.5,0.5,1\n",                           # F6: more groups than slots
+    "1:0.1,0.2;0.3,0.4;NaN,NaN:0.5,0.5,1,2,3,4\n",             # F5: two fields per group
+    "1:{p}:0.5,0.5,1\n2:{p};0.7,0.8,3.0:0.5,0.5\n",              # layout changes mid-file
+])
+def test_f5_f6_layout_not_matching_the_metadata_is_rejected_not_misread(tmp_path, raw):
+    with pytest.raises(ValueError, match="layout"):
+        io_atd.read_raw(_write(tmp_path / "r.txt", raw.format(p=P)), 3)
